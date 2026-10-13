@@ -14,7 +14,7 @@ COOPER'S FARM WEATHER - INSTALL STEPS
 Data sources (all free, no account or key):
    Weather, soil, air quality: open-meteo.com
    Radar: NOAA NEXRAD via mesonet.agron.iastate.edu (U.S. only)
-   Map: OpenStreetMap and CARTO
+   Map: OpenStreetMap (backup: USGS The National Map)
    Town name for GPS (US): api.weather.gov
 
 After you change any file and re-upload, change the version name in sw.js

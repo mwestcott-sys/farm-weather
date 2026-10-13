@@ -292,15 +292,40 @@
     return tryName(0);
   }
 
+  /* Base map: tries each free, keyless provider in order and uses the first that serves a tile. */
+  var BASEMAPS = [
+    { url: "https://tile.openstreetmap.org/{z}/{x}/{y}.png", attr: "&copy; OpenStreetMap contributors" },
+    { url: "https://basemap.nationalmap.gov/arcgis/rest/services/USGSTopo/MapServer/tile/{z}/{y}/{x}", attr: "Map: USGS The National Map" }
+  ];
+  function addBasemap() {
+    if (radar.base || radar.baseTrying) return;
+    radar.baseTrying = true;
+    var t = tileXY(place.lat, place.lon, 6);
+    function probeUrl(u) { return u.replace("{z}", 6).replace("{x}", t.x).replace("{y}", t.y); }
+    function tryAt(i) {
+      if (i >= BASEMAPS.length) return Promise.reject(new Error("no basemap"));
+      return new Promise(function (resolve, reject) {
+        var img = new Image(), done = false;
+        var timer = setTimeout(function () { if (!done) { done = true; reject(); } }, 8000);
+        img.onload = function () { if (!done) { done = true; clearTimeout(timer); resolve(i); } };
+        img.onerror = function () { if (!done) { done = true; clearTimeout(timer); reject(); } };
+        img.src = probeUrl(BASEMAPS[i].url);
+      }).catch(function () { return tryAt(i + 1); });
+    }
+    tryAt(0).then(function (i) {
+      radar.base = L.tileLayer(BASEMAPS[i].url, { maxZoom: 9, attribution: BASEMAPS[i].attr, className: "basemap" }).addTo(radar.map);
+      radar.base.bringToBack();
+    }).catch(function () {}).then(function () { radar.baseTrying = false; });
+  }
+
   function loadRadar() {
     if (typeof L === "undefined") { setRadarStatus("Radar needs an internet connection."); return; }
     if (!radar.map) {
       radar.map = L.map("map", { scrollWheelZoom: false, worldCopyJump: true, minZoom: 4, maxZoom: 9 }).setView([place.lat, place.lon], 7);
-      L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
-        maxZoom: 9, subdomains: "abcd", attribution: "&copy; OpenStreetMap contributors &copy; CARTO"
-      }).addTo(radar.map);
+      addBasemap();
     } else {
       radar.map.setView([place.lat, place.lon], radar.map.getZoom());
+      addBasemap();
     }
     if (radar.marker) radar.map.removeLayer(radar.marker);
     radar.marker = L.circleMarker([place.lat, place.lon], { radius: 7, color: "#ffffff", weight: 3, fillColor: "#e9a60f", fillOpacity: 1 }).addTo(radar.map);
