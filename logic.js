@@ -164,7 +164,74 @@ var Logic = (function () {
     return "Emergency. Cool the animals down now.";
   }
 
+
+  /* ---------- crops: readiness from the planting date ---------- */
+  /* name, typical days to harvest, usual harvest window in days, frost-tender (1/0), days counted from.
+     These are rough typical figures. The app lets you change the days for your own variety. */
+  var CROPS = [
+    ["Soybeans", 120, 14, 1, "seed"], ["Corn, field", 120, 21, 1, "seed"], ["Corn, sweet", 75, 7, 1, "seed"],
+    ["Wheat, winter", 220, 21, 0, "seed"], ["Cotton", 160, 30, 1, "seed"], ["Peanuts", 140, 14, 1, "seed"],
+    ["Tobacco", 70, 40, 1, "transplant"], ["Sorghum", 110, 21, 1, "seed"], ["Sunflowers", 100, 21, 1, "seed"],
+    ["Sweet potatoes", 100, 21, 1, "slips"], ["Potatoes, Irish", 100, 21, 0, "seed pieces"],
+    ["Tomatoes", 75, 60, 1, "transplant"], ["Peppers", 75, 60, 1, "transplant"], ["Okra", 55, 60, 1, "seed"],
+    ["Southern peas", 65, 30, 1, "seed"], ["Green beans, bush", 55, 14, 1, "seed"], ["Green beans, pole", 65, 30, 1, "seed"],
+    ["Cucumbers", 55, 30, 1, "seed"], ["Squash, summer", 50, 30, 1, "seed"], ["Squash, winter", 95, 21, 1, "seed"],
+    ["Pumpkins", 100, 21, 1, "seed"], ["Watermelon", 85, 21, 1, "seed"], ["Cantaloupe", 85, 14, 1, "seed"],
+    ["Collards", 70, 60, 0, "seed"], ["Kale", 60, 60, 0, "seed"], ["Lettuce", 55, 10, 0, "seed"],
+    ["Broccoli", 70, 14, 0, "transplant"], ["Cabbage", 75, 21, 0, "transplant"], ["Carrots", 75, 30, 0, "seed"],
+    ["Beets", 55, 30, 0, "seed"], ["Radishes", 28, 10, 0, "seed"], ["Turnips", 50, 30, 0, "seed"],
+    ["Onions", 110, 30, 0, "sets or transplants"], ["Garlic", 230, 14, 0, "cloves"]
+  ].map(function (c) { return { name: c[0], dtm: c[1], win: c[2], tender: !!c[3], from: c[4] }; });
+
+  var MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  function short(d) { return MON[d.getMonth()] + " " + d.getDate(); }
+  function plural(n, w) { return n + " " + w + (n === 1 ? "" : "s"); }
+  function parseDay(s) { var p = String(s).split("-"); return new Date(+p[0], +p[1] - 1, +p[2]); }
+  function dayDiff(a, b) { return Math.round((b - a) / 864e5); }
+  function addDays(d, n) { return new Date(d.getFullYear(), d.getMonth(), d.getDate() + n); }
+  function dayStart(d) { return new Date(d.getFullYear(), d.getMonth(), d.getDate()); }
+
+  /* First night in days 1 to 5 with a forecast low of 32F or less, as { inDays, lo }, or null. */
+  function frostAhead(days) {
+    for (var i = 1; i <= 5 && i < days.length; i++) { if (days[i].lo <= 32) return { inDays: i, lo: days[i].lo }; }
+    return null;
+  }
+
+  /* e = { planted: "YYYY-MM-DD", dtm, win, tender }. today is a Date at local midnight. */
+  function cropStatus(e, today, frost) {
+    var planted = parseDay(e.planted), since = dayDiff(planted, today);
+    var dtm = Math.max(1, Math.round(+e.dtm) || 1), w = e.win == null ? 21 : e.win;
+    var ready = addDays(planted, dtm), left = dtm - since, ends = addDays(ready, w);
+    var r = { since: since, dtm: dtm, left: left, ready: ready, pct: Math.max(0, Math.min(1, since / dtm)), frost: null };
+    if (since < 0) {
+      r.k = "future"; r.label = "Planned"; r.pct = 0;
+      r.line = "Planting date is " + plural(-since, "day") + " away. Ready around " + short(ready) + ".";
+      return r;
+    }
+    if (left <= 0) {
+      if (since > dtm + w) {
+        r.k = "late"; r.label = "Check it";
+        r.line = "Past its usual window by " + plural(since - dtm - w, "day") + ". Look at it in the field.";
+      } else {
+        r.k = "go"; r.label = "Ready";
+        r.line = (left === 0 ? "Ready today." : "Ready since " + short(ready) + ".") + " Usual window ends about " + short(ends) + ".";
+      }
+    } else {
+      r.k = left <= Math.max(7, Math.round(dtm * 0.15)) ? "soon" : "wait";
+      r.label = r.k === "soon" ? "Almost" : "Not yet";
+      r.line = "Day " + since + " of " + dtm + ". Ready around " + short(ready) + " (" + plural(left, "day") + ").";
+    }
+    if (e.tender && frost && r.k !== "late") {
+      var when = frost.inDays === 1 ? "tomorrow morning" : "in " + plural(frost.inDays, "day");
+      r.frost = "Frost possible " + when + " (low " + frost.lo + "\u00b0F). " + (left > frost.inDays ? "This crop may not finish in time." : "Harvest tender crops first.");
+    }
+    return r;
+  }
+  var RANK = { go: 0, late: 1, soon: 2, wait: 3, future: 4 };
+  function cropOrder(a, b) { return (RANK[a.r.k] - RANK[b.r.k]) || (a.r.left - b.r.left); }
+
   return {
+    CROPS: CROPS, cropStatus: cropStatus, cropOrder: cropOrder, frostAhead: frostAhead, dayStart: dayStart,
     catOf: catOf, COND: COND, fmtClock: fmtClock, parse: parse, aqiCat: aqiCat, soilNote: soilNote,
     tractor: tractor, rateDay: rateDay, haySummary: haySummary, thi: thi, thiCat: thiCat
   };

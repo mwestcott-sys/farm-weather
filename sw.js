@@ -1,5 +1,5 @@
 /* Keeps the app opening when the phone is offline. Weather data itself is saved by the app, not here. */
-var CACHE = "cooper-farm-weather-v2";
+var CACHE = "cooper-farm-weather-v4";
 var SHELL = ["./", "index.html", "app.js", "logic.js", "manifest.webmanifest", "icon-192.png", "icon-512.png", "icon-180.png"];
 
 self.addEventListener("install", function (e) {

@@ -13,7 +13,7 @@ COOPER'S FARM WEATHER - INSTALL STEPS
 
 Data sources (all free, no account or key):
    Weather, soil, air quality: open-meteo.com
-   Radar: rainviewer.com
+   Radar: NOAA NEXRAD via mesonet.agron.iastate.edu (U.S. only)
    Map: OpenStreetMap and CARTO
    Town name for GPS (US): api.weather.gov
 

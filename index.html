@@ -34,6 +34,7 @@
   --btn-bg:#ffd21f; --btn-fg:#1a1a10;
   --sun:#ffc92e; --moon:#d3e1ee; --cloud:#b9c6d3; --rainc:#6fb0f0; color-scheme:dark}}
 *{box-sizing:border-box}
+[hidden]{display:none!important}
 html,body{margin:0}
 body{background:var(--bg);color:var(--ink);font-family:var(--body);font-size:16px;line-height:1.45;-webkit-text-size-adjust:100%}
 h1,h2,h3{font-family:var(--display);margin:0;line-height:1.05;text-wrap:balance}
@@ -79,7 +80,7 @@ h1{font-size:1.5rem;font-weight:700;letter-spacing:.04em;text-transform:uppercas
 .btn{font:inherit;font-weight:600;color:var(--btn-fg);background:var(--btn-bg);border:2px solid transparent;border-radius:10px;padding:8px 18px;min-height:44px;cursor:pointer}
 .btn.ghost{background:transparent;color:var(--muted);border-color:var(--line-strong)}
 .btn:focus-visible,.hbtn:focus-visible,input:focus-visible,.x:focus-visible{outline:3px solid var(--yellow);outline-offset:2px}
-input[type=text],input[type=number]{font:inherit;color:var(--ink);background:var(--surface2);border:2px solid var(--line);border-radius:10px;padding:8px 10px;min-height:44px;width:100%}
+input[type=text],input[type=number],input[type=date],select{font:inherit;color:var(--ink);background:var(--surface2);border:2px solid var(--line);border-radius:10px;padding:8px 10px;min-height:44px;width:100%}
 input[type=range]{width:100%;min-height:44px;accent-color:var(--green)}
 .addcrop{display:flex;flex-wrap:wrap;gap:10px;margin-top:16px;padding-top:16px;border-top:1px solid var(--line);align-items:flex-end}
 .addcrop label{display:flex;flex-direction:column;gap:4px;font-size:.72rem;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);min-width:0}
@@ -115,6 +116,16 @@ input[type=range]{width:100%;min-height:44px;accent-color:var(--green)}
 .radarbar .btn{min-width:84px}
 .legend{display:flex;align-items:center;gap:8px;margin-top:8px;font-size:.8rem;color:var(--muted)}
 .legend i{flex:0 1 160px;height:8px;border-radius:99px;background:linear-gradient(90deg,#3cc850,#e6c800,#dc2828)}
+
+
+select{appearance:auto}
+.addcrop .f1{flex:1 1 180px}.addcrop .f2{flex:1 1 150px}
+.cropHint{flex:1 1 100%;margin:0}
+.btnrow{display:flex;flex-wrap:wrap;gap:10px;flex:1 1 100%}
+.crop .nm .fld{font-weight:500;color:var(--muted)}
+.crop .warn{grid-column:1/-1;font-size:.85rem;font-weight:600;color:var(--alert);margin-top:-2px}
+.crop.late .track i{background:var(--alert)}
+.crop.future .track i{background:var(--line-strong)}
 
 /* farmer's corner */
 .corner{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;justify-content:space-between;background:linear-gradient(180deg,#2a6d24,#378a2c);color:#fff;border-radius:10px;padding:14px 18px;border-bottom:5px solid #f2c200}
@@ -246,28 +257,34 @@ footer{font-size:.8rem;color:var(--muted);text-align:center}
     </section>
   </div>
 
-  <div class="grid2">
-    <section class="panel"><h2>Ready to harvest?</h2><div class="crops" id="crops"></div>
-      <form class="addcrop" id="addcrop" autocomplete="off">
-        <label class="f1" for="cropName">Add a crop<input type="text" id="cropName" maxlength="30" placeholder="Corn, apples, hay..." required></label>
-        <label class="f2" for="cropPct">How ready: <span id="cropPctV">50%</span><input type="range" id="cropPct" min="0" max="100" step="5" value="50"></label>
-        <button class="btn" type="submit">Add</button>
+  <section class="panel" id="sec-crops"><h2>Ready to harvest?</h2>
+    <div class="crops" id="crops"></div>
+    <form class="addcrop" id="addcrop" autocomplete="off">
+      <label class="f1" for="cropType">Crop<select id="cropType" required></select></label>
+      <label class="f1" id="cropOtherWrap" for="cropOther" hidden>Crop name<input type="text" id="cropOther" maxlength="30" placeholder="Name of the crop"></label>
+      <label class="f1" for="cropField">Field<input type="text" id="cropField" maxlength="30" placeholder="South 40, garden..."></label>
+      <label class="f2" for="cropDate">Date planted<input type="date" id="cropDate" required></label>
+      <label class="f2" for="cropDtm">Days to harvest<input type="number" id="cropDtm" inputmode="numeric" min="1" max="500" step="1" required></label>
+      <p class="note cropHint" id="cropHint">Pick a crop and the usual days to harvest fill in. Change them for your variety.</p>
+      <div class="btnrow">
+        <button class="btn" type="submit">Add crop</button>
         <button class="btn ghost" type="button" id="exampleCrops">Add examples</button>
         <button class="btn ghost" type="button" id="clearCrops">Clear list</button>
-      </form>
-    </section>
-    <section class="panel"><h2>Hay and field work</h2><div id="hay"></div>
-      <form class="addcrop" id="hayForm" autocomplete="off">
-        <label class="f1" for="hayMoist">Hay moisture from your probe (%)<input type="number" id="hayMoist" inputmode="decimal" min="0" max="60" step="0.5" placeholder="Example: 16"></label>
-        <button class="btn" type="submit">Save</button>
-        <button class="btn ghost" type="button" id="hayClear">Clear</button>
-      </form>
-    </section>
-  </div>
+      </div>
+    </form>
+  </section>
+
+  <section class="panel"><h2>Hay and field work</h2><div id="hay"></div>
+    <form class="addcrop" id="hayForm" autocomplete="off">
+      <label class="f1" for="hayMoist">Hay moisture from your probe (%)<input type="number" id="hayMoist" inputmode="decimal" min="0" max="60" step="0.5" placeholder="Example: 16"></label>
+      <button class="btn" type="submit">Save</button>
+      <button class="btn ghost" type="button" id="hayClear">Clear</button>
+    </form>
+  </section>
 
   <section class="panel"><h2>More for the farm</h2><div class="tips" id="tips"></div></section>
 
-  <footer>Weather, soil and air quality: Open-Meteo. Radar: RainViewer. Map: OpenStreetMap, CARTO. Crop and hay readings are entered by hand.</footer>
+  <footer>Weather, soil and air quality: Open-Meteo. Radar: NOAA NEXRAD via Iowa Environmental Mesonet. Map: OpenStreetMap, CARTO. Crop and hay readings are entered by hand.</footer>
 </main>
 
 <nav class="dock" aria-label="Sections">

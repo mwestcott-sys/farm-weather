@@ -6,8 +6,9 @@
   var DEFAULT_PLACE = { name: "Snow Camp, NC", lat: 35.9, lon: -79.43 };
   var place = lsGet("cfw-place", DEFAULT_PLACE);
   var model = null;
-  var crops = lsGet("cfw-crops", []);
+  var crops = lsGet("cfw-crops2", []);
   if (!Array.isArray(crops)) crops = [];
+  crops = crops.filter(function (c) { return c && typeof c.crop === "string" && /^\d{4}-\d{2}-\d{2}$/.test(c.planted || "") && +c.dtm > 0; });
 
   function lsGet(k, def) { try { var v = localStorage.getItem(k); return v == null ? def : JSON.parse(v); } catch (e) { return def; } }
   function lsSet(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }
@@ -113,6 +114,7 @@
     var dd = m.days[1] ? m.days[1].hi - m.days[0].hi : 0, ad = Math.abs(dd);
     $("tomorrow").textContent = !m.days[1] ? "" : ad <= 1 ? "Tomorrow's high is about the same as today." :
       "Tomorrow's high is " + ad + "\u00b0 " + (dd > 0 ? "warmer" : "cooler") + " than today" + (ad >= 8 ? ". Big change." : ".");
+    renderCrops();
     renderTractor();
     renderSoil();
     renderHay();
@@ -186,37 +188,71 @@
     ].map(function (x) { return '<div class="tip"><b>' + x[0] + '</b>' + x[1] + '</div>'; }).join("");
   }
 
-  /* ---------- crops (typed in by hand, saved on this phone) ---------- */
-  function saveCrops() { lsSet("cfw-crops", crops); }
+  /* ---------- crops: crop, field and date planted; readiness comes from the days since planting ---------- */
+  function saveCrops() { lsSet("cfw-crops2", crops); }
+  function todayStr() {
+    var d = new Date(), p = function (n) { return (n < 10 ? "0" : "") + n; };
+    return d.getFullYear() + "-" + p(d.getMonth() + 1) + "-" + p(d.getDate());
+  }
+  function longDay(iso) { var d = Logic.dayStart(new Date(iso + "T12:00:00")); return d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" }); }
   function renderCrops() {
     var box = $("crops"); box.textContent = "";
     if (!crops.length) {
       var p = document.createElement("p"); p.className = "empty";
-      p.textContent = "No crops yet. Add the ones you are growing below, or tap Add examples."; box.appendChild(p); return;
+      p.textContent = "No crops yet. Add a crop, its field and the date you planted it below, or tap Add examples.";
+      box.appendChild(p); return;
     }
-    crops.forEach(function (cr, i) {
-      var k = cr.pct >= 90 ? "go" : cr.pct >= 70 ? "soon" : "wait", lab = k === "go" ? "Ready" : k === "soon" ? "Almost" : "Not yet";
-      var row = document.createElement("div"); row.className = "crop";
-      var nm = document.createElement("span"); nm.className = "nm"; nm.textContent = cr.nm;
-      var pill = document.createElement("span"); pill.className = "pill " + k; pill.textContent = lab;
-      var x = document.createElement("button"); x.type = "button"; x.className = "x"; x.textContent = "×"; x.setAttribute("aria-label", "Remove " + cr.nm);
-      x.addEventListener("click", function () { crops.splice(i, 1); saveCrops(); renderCrops(); });
-      var note = document.createElement("span"); note.className = "note"; note.style.cssText = "grid-column:1/-1;margin-top:-2px"; note.textContent = cr.note || (cr.pct + "% ready");
-      var tr = document.createElement("div"); tr.className = "track"; var bar = document.createElement("i"); bar.style.width = cr.pct + "%"; tr.appendChild(bar);
-      row.appendChild(nm); row.appendChild(pill); row.appendChild(x); row.appendChild(note); row.appendChild(tr);
+    var today = Logic.dayStart(new Date()), frost = model ? Logic.frostAhead(model.days) : null;
+    var rows = crops.map(function (e) { return { e: e, r: Logic.cropStatus(e, today, frost) }; }).sort(Logic.cropOrder);
+    rows.forEach(function (x) {
+      var e = x.e, r = x.r;
+      var row = document.createElement("div"); row.className = "crop " + r.k;
+      var nm = document.createElement("span"); nm.className = "nm"; nm.textContent = e.crop;
+      if (e.field) { var f = document.createElement("span"); f.className = "fld"; f.textContent = " \u00b7 " + e.field; nm.appendChild(f); }
+      var pill = document.createElement("span"); pill.className = "pill " + (r.k === "go" ? "go" : r.k === "soon" || r.k === "future" ? "soon" : "wait"); pill.textContent = r.label;
+      var del = document.createElement("button"); del.type = "button"; del.className = "x"; del.textContent = "\u00d7"; del.setAttribute("aria-label", "Remove " + e.crop + (e.field ? " in " + e.field : ""));
+      del.addEventListener("click", function () { crops.splice(crops.indexOf(e), 1); saveCrops(); renderCrops(); });
+      var note = document.createElement("span"); note.className = "note"; note.style.cssText = "grid-column:1/-1;margin-top:-2px";
+      note.textContent = "Planted " + longDay(e.planted) + ". " + r.line;
+      var tr = document.createElement("div"); tr.className = "track"; var bar = document.createElement("i"); bar.style.width = Math.round(r.pct * 100) + "%"; tr.appendChild(bar);
+      row.appendChild(nm); row.appendChild(pill); row.appendChild(del); row.appendChild(note);
+      if (r.frost) { var w = document.createElement("span"); w.className = "warn"; w.textContent = r.frost; row.appendChild(w); }
+      row.appendChild(tr);
       box.appendChild(row);
     });
   }
-  $("cropPct").addEventListener("input", function () { $("cropPctV").textContent = $("cropPct").value + "%"; });
-  $("addcrop").addEventListener("submit", function (e) {
-    e.preventDefault();
-    var name = $("cropName").value.trim(); if (!name) return;
-    crops.push({ nm: name, pct: +$("cropPct").value, note: "" });
-    saveCrops(); renderCrops(); $("cropName").value = ""; $("cropName").focus();
-  });
+
+  (function setupCropForm() {
+    var sel = $("cropType"), opt = function (v, t, dis) { var o = document.createElement("option"); o.value = v; o.textContent = t; if (dis) { o.disabled = true; o.selected = true; } return o; };
+    sel.appendChild(opt("", "Choose a crop", true));
+    Logic.CROPS.forEach(function (c, i) { sel.appendChild(opt(String(i), c.name)); });
+    sel.appendChild(opt("other", "Other (type your own)"));
+    $("cropDate").value = todayStr();
+    sel.addEventListener("change", function () {
+      var other = sel.value === "other"; $("cropOtherWrap").hidden = !other; $("cropOther").required = other;
+      if (other) { $("cropDtm").value = ""; $("cropHint").textContent = "Enter the days from planting to harvest. Your seed packet or variety guide has it."; return; }
+      var c = Logic.CROPS[+sel.value]; if (!c) return;
+      $("cropDtm").value = c.dtm;
+      $("cropHint").textContent = "Typical: about " + c.dtm + " days, counted from " + c.from + ". Rough figure. Change it to match your variety or seed packet.";
+    });
+    $("addcrop").addEventListener("submit", function (e) {
+      e.preventDefault();
+      var v = sel.value, c = v === "other" ? null : Logic.CROPS[+v];
+      var name = c ? c.name : $("cropOther").value.trim(), dtm = Math.round(+$("cropDtm").value), planted = $("cropDate").value;
+      if (!name || !(dtm > 0) || !planted) return;
+      crops.push({ crop: name, field: $("cropField").value.trim(), planted: planted, dtm: dtm, win: c ? c.win : 21, tender: c ? c.tender : false });
+      saveCrops(); renderCrops();
+      sel.value = ""; $("cropOther").value = ""; $("cropOtherWrap").hidden = true; $("cropOther").required = false; $("cropDtm").value = "";
+      $("cropHint").textContent = "Added. Pick another crop to add more.";
+    });
+  })();
   $("clearCrops").addEventListener("click", function () { crops = []; saveCrops(); renderCrops(); });
   $("exampleCrops").addEventListener("click", function () {
-    crops = [{ nm: "Soybeans", pct: 90, note: "" }, { nm: "Sweet potatoes", pct: 100, note: "" }, { nm: "Pumpkins", pct: 100, note: "" }, { nm: "Collards", pct: 60, note: "" }];
+    var t = Logic.dayStart(new Date()), ago = function (n) { var d = new Date(t.getFullYear(), t.getMonth(), t.getDate() - n), p = function (x) { return (x < 10 ? "0" : "") + x; }; return d.getFullYear() + "-" + p(d.getMonth() + 1) + "-" + p(d.getDate()); };
+    function find(n) { return Logic.CROPS.filter(function (c) { return c.name === n; })[0]; }
+    [["Soybeans", "South 40", 128], ["Sweet potatoes", "Garden", 92], ["Pumpkins", "Back field", 72], ["Collards", "Garden", 35]].forEach(function (x) {
+      var c = find(x[0]); crops.push({ crop: c.name, field: x[1], planted: ago(x[2]), dtm: c.dtm, win: c.win, tender: c.tender });
+    });
     saveCrops(); renderCrops();
   });
 
@@ -230,16 +266,38 @@
   $("hayClear").addEventListener("click", function () { lsSet("cfw-hay", null); $("hayMoist").value = ""; if (model) renderHay(); });
   (function () { var v = lsGet("cfw-hay", null); if (typeof v === "number") $("hayMoist").value = v; })();
 
-  /* ---------- radar (RainViewer frames over a CARTO map, drawn with Leaflet) ---------- */
-  var radar = { map: null, marker: null, layers: [], times: [], i: 0, timer: null };
+  /* ---------- radar: NOAA NEXRAD mosaic from the Iowa Environmental Mesonet (free, no key, U.S. only) ---------- */
+  var IEM = "https://mesonet.agron.iastate.edu/cache/tile.py/1.0.0/";
+  var radar = { map: null, marker: null, layers: [], mins: [], i: 0, timer: null, token: 0 };
   function setRadarStatus(t) { $("rStatus").textContent = t; }
+  function inUS(p) { return p.lat >= 24 && p.lat <= 50 && p.lon >= -125 && p.lon <= -66; }
+
+  function tileXY(lat, lon, z) {
+    var n = Math.pow(2, z), r = lat * Math.PI / 180;
+    return { x: Math.floor((lon + 180) / 360 * n), y: Math.floor((1 - Math.log(Math.tan(r) + 1 / Math.cos(r)) / Math.PI) / 2 * n) };
+  }
+  /* Tries each known layer name and resolves with the first one that serves a tile near the map center. */
+  function findLayerName() {
+    var names = ["nexrad-n0q-900913", "nexrad-n0q"], t = tileXY(place.lat, place.lon, 6);
+    function tryName(i) {
+      if (i >= names.length) return Promise.reject(new Error("no layer"));
+      return new Promise(function (resolve, reject) {
+        var img = new Image(), done = false;
+        var timer = setTimeout(function () { if (!done) { done = true; reject(); } }, 8000);
+        img.onload = function () { if (!done) { done = true; clearTimeout(timer); resolve(names[i]); } };
+        img.onerror = function () { if (!done) { done = true; clearTimeout(timer); reject(); } };
+        img.src = IEM + names[i] + "/6/" + t.x + "/" + t.y + ".png";
+      }).catch(function () { return tryName(i + 1); });
+    }
+    return tryName(0);
+  }
 
   function loadRadar() {
     if (typeof L === "undefined") { setRadarStatus("Radar needs an internet connection."); return; }
     if (!radar.map) {
-      radar.map = L.map("map", { scrollWheelZoom: false, worldCopyJump: true }).setView([place.lat, place.lon], 7);
+      radar.map = L.map("map", { scrollWheelZoom: false, worldCopyJump: true, minZoom: 4, maxZoom: 9 }).setView([place.lat, place.lon], 7);
       L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
-        maxZoom: 12, subdomains: "abcd", attribution: "&copy; OpenStreetMap contributors &copy; CARTO"
+        maxZoom: 9, subdomains: "abcd", attribution: "&copy; OpenStreetMap contributors &copy; CARTO"
       }).addTo(radar.map);
     } else {
       radar.map.setView([place.lat, place.lon], radar.map.getZoom());
@@ -248,28 +306,33 @@
     radar.marker = L.circleMarker([place.lat, place.lon], { radius: 7, color: "#ffffff", weight: 3, fillColor: "#e9a60f", fillOpacity: 1 }).addTo(radar.map);
     setTimeout(function () { radar.map.invalidateSize(); }, 200);
 
-    getJson("https://api.rainviewer.com/public/weather-maps.json").then(function (j) {
-      var past = (j.radar && j.radar.past) || [];
-      if (!past.length) throw new Error("no frames");
-      radarStop();
-      radar.layers.forEach(function (l) { radar.map.removeLayer(l); });
-      radar.layers = []; radar.times = [];
-      past.slice(-12).forEach(function (f) {
-        var layer = L.tileLayer(j.host + f.path + "/256/{z}/{x}/{y}/2/1_1.png", { opacity: 0, maxNativeZoom: 7, maxZoom: 12, zIndex: 5, attribution: "Radar: RainViewer" });
+    radarStop();
+    radar.layers.forEach(function (l) { radar.map.removeLayer(l); });
+    radar.layers = []; radar.mins = [];
+    var my = ++radar.token;
+    if (!inUS(place)) { setRadarStatus("This radar covers the continental U.S. only."); return; }
+    setRadarStatus("Loading radar...");
+
+    findLayerName().then(function (name) {
+      if (my !== radar.token) return;
+      /* oldest first: 50, 45, ... 5 minutes ago, then now */
+      for (var m = 50; m >= 0; m -= 5) {
+        var layer = L.tileLayer(IEM + name + (m ? "-m" + (m < 10 ? "0" : "") + m + "m" : "") + "/{z}/{x}/{y}.png",
+          { opacity: 0, maxNativeZoom: 9, maxZoom: 9, zIndex: 5, attribution: "Radar: NOAA NEXRAD via Iowa Environmental Mesonet" });
         layer.addTo(radar.map);
-        radar.layers.push(layer); radar.times.push(f.time);
-      });
+        radar.layers.push(layer); radar.mins.push(m);
+      }
       var last = radar.layers.length - 1;
       $("rFrame").max = last; showFrame(last);
-      setRadarStatus("Radar from RainViewer, updated " + clockNow(radar.times[last] * 1000) + ".");
+      setRadarStatus("Radar from NOAA's NEXRAD network, refreshed about every 5 minutes.");
       if (!(window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches)) radarPlay();
-    }).catch(function () { setRadarStatus("Radar is not available right now."); });
+    }).catch(function () { if (my === radar.token) setRadarStatus("Radar is not available right now. Tap Refresh to try again."); });
   }
   function showFrame(i) {
     radar.i = i; $("rFrame").value = i;
     radar.layers.forEach(function (l, k) { l.setOpacity(k === i ? 0.75 : 0); });
-    var ago = Math.round((radar.times[radar.times.length - 1] - radar.times[i]) / 60);
-    $("rTime").textContent = i === radar.layers.length - 1 ? "Now" : ago + " min ago";
+    var m = radar.mins[i];
+    $("rTime").textContent = m === 0 ? "Now" : m + " min ago";
   }
   function radarStop() { clearInterval(radar.timer); radar.timer = null; $("rPlay").textContent = "Play"; }
   function radarPlay() {
